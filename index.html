@@ -546,17 +546,15 @@
         }
         
         // --- INTERACCIÓN ---
-        window.handleTicketClick = (num) => {
-            // ADMIN
-            if (STATE.isAdmin) {
-                STATE.activeAdminTicket = num;
-                UI.adminTicketDisplay.textContent = `#${num.toString().padStart(3,'0')}`;
+        {  if (STATE.soldData[num]) { 
+                // *** ¡MUESTRA EL NOMBRE SECRETO! ***
+                const clientName = STATE.clientNames[num.toString().padStart(3,'0')] || 'Cliente no registrado';
+                UI.adminInfoName.textContent = clientName;
                 
-                if (STATE.soldData[num]) {
-                    UI.adminInfoName.textContent = STATE.soldData[num].name;
-                    UI.adminViewSell.classList.add('hidden');
-                    UI.adminViewInfo.classList.remove('hidden');
-                } else {
+                UI.adminViewSell.classList.add('hidden');
+                UI.adminViewInfo.classList.remove('hidden');
+            } else {
+
                     UI.adminInputBuyer.value = '';
                     UI.adminViewInfo.classList.add('hidden');
                     UI.adminViewSell.classList.remove('hidden');
