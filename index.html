@@ -759,6 +759,31 @@
 </body>
 </html>
     
-  </body>
+ <script>
+  // Dirección de tu archivo de datos en GitHub
+  const JSON_URL = 'tickets.json'; 
+
+  // Función que lee los datos y actualiza la tabla
+  fetch(JSON_URL)
+    .then(response => response.json())
+    .then(data => {
+      data.forEach(ticket => {
+        // 1. Busca el elemento en la tabla HTML que tiene el ID del número (ej: id="001")
+        const element = document.getElementById(ticket.id);
+        
+        // 2. Si el número se encuentra y su estado es VENDIDO
+        if (element && ticket.estado.toUpperCase() === 'VENDIDO') {
+          // 3. Aplica estilos para mostrarlo como no disponible
+          element.style.backgroundColor = '#cc0000'; // Color rojo
+          element.style.color = 'white'; // Letra blanca
+          element.style.pointerEvents = 'none'; // Desactiva clics
+          element.innerHTML = 'VENDIDO'; // Cambia el texto
+        }
+      });
+    })
+    .catch(error => console.error('Error al cargar los datos:', error));
+
+</script>
+ </body>
   
 </html>
