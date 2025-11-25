@@ -1,5 +1,5 @@
 [
-  { "id": "001", "estado": "LIBRE" },
+  { "id": "001", "estado": "VENDIDO" },
   { "id": "002", "estado": "LIBRE" },
   { "id": "003", "estado": "LIBRE" },
   { "id": "004", "estado": "LIBRE" },
