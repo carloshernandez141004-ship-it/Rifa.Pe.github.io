@@ -347,34 +347,31 @@
         const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'rifa-pe-v12-classic';
         const CONFIG = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
         
-        // ESTA ES LA FUNCIÓN QUE VOY A AGREGAR PARA QUE SIEMPRE FUNCIONE LA ACTUALIZACIÓN
+        // CÓDIGO DE ACTUALIZACIÓN MANUAL (JSON) - AHORA INTEGRADO Y MEJORADO
         function startManualJsonSync() {
-    const JSON_URL = 'tickets.json?' + new Date().getTime(); 
+            // Usa el truco del timestamp para evitar el caché
+            const JSON_URL = 'tickets.json?' + new Date().getTime(); 
 
-    fetch(JSON_URL)
-        .then(response => response.json())
-        .then(data => {
-            // 1. Limpia la memoria para empezar de cero
-            STATE.clientNames = {}; 
-            
-            data.forEach(ticket => {
-                const element = document.getElementById(ticket.id);
-                
-                if (element && ticket.estado.toUpperCase() === 'VENDIDO') {
-                    // 2. Si hay un nombre, guárdalo en la memoria secreta
-                    if (ticket.cliente) {
-                        STATE.clientNames[ticket.id] = ticket.cliente;
-                    }
+            fetch(JSON_URL)
+                .then(response => response.json())
+                .then(data => {
+                    STATE.clientNames = {}; 
                     
-                    // 3. Bloquea el número (lo ven todos)
-                    element.className = 'btn-number btn-sold';
-                    element.innerHTML = 'VENDIDO';
-                }
-            });
-        })
-        .catch(error => console.error('Error al cargar tickets.json:', error));
-}
-
+                    data.forEach(ticket => {
+                        const element = document.getElementById(ticket.id);
+                        
+                        if (element && ticket.estado.toUpperCase() === 'VENDIDO') {
+                            if (ticket.cliente) {
+                                STATE.clientNames[ticket.id] = ticket.cliente;
+                            }
+                            
+                            element.className = 'btn-number btn-sold';
+                            element.innerHTML = 'VENDIDO';
+                        }
+                    });
+                })
+                .catch(error => console.error('Error al cargar tickets.json:', error));
+        }
         
         const STATE = {
             selected: [],
@@ -386,7 +383,8 @@
             isAdmin: false,
             adminClicks: 0,
             activeAdminTicket: null,
-            isMuted: false, clientNames: {} // <--- ¡Esta es la memoria!
+            isMuted: false,
+            clientNames: {} // MEMORIA PARA NOMBRES
         };
 
         const UI = {
@@ -465,13 +463,13 @@
         function initGrid() {
             let html = '';
             for (let i = 1; i <= STATE.max; i++) {
-                // *** ESTA LÍNEA ES LA ARREGLADA PARA USAR ID="001", "002" ***
+                // CREACIÓN DE BOTONES CON ID="001", "002"
                 html += `<button id="${i.toString().padStart(3, '0')}" class="btn-number" onclick="handleTicketClick(${i})">${i.toString().padStart(3, '0')}</button>`;
             }
             UI.grid.innerHTML = html;
             // Cargar datos locales al inicio
             syncFromLocal();
-            // Despues de cargar el Grid, llamamos al JSON manual por si acaso
+            // Despues de cargar el Grid, llamamos al JSON manual
             startManualJsonSync(); 
         }
 
@@ -480,7 +478,7 @@
             Object.keys(localDB).forEach(key => {
                 const n = parseInt(key);
                 STATE.soldData[n] = localDB[key];
-                // *** ID ARREGLADO AQUÍ TAMBIÉN ***
+                // ID ARREGLADO AQUÍ TAMBIÉN
                 const btn = document.getElementById(n.toString().padStart(3, '0'));
                 if(btn) btn.className = "btn-number btn-sold";
             });
@@ -517,7 +515,7 @@
                 snapshot.docChanges().forEach(change => {
                     const data = change.doc.data();
                     const n = parseInt(change.doc.id);
-                    // *** ID ARREGLADO AQUÍ TAMBIÉN ***
+                    // ID ARREGLADO AQUÍ TAMBIÉN
                     const btn = document.getElementById(n.toString().padStart(3, '0'));
                     
                     if (change.type === "added" || change.type === "modified") {
@@ -546,15 +544,20 @@
         }
         
         // --- INTERACCIÓN ---
-        {  if (STATE.soldData[num]) { 
-                // *** ¡MUESTRA EL NOMBRE SECRETO! ***
-                const clientName = STATE.clientNames[num.toString().padStart(3,'0')] || 'Cliente no registrado';
-                UI.adminInfoName.textContent = clientName;
+        window.handleTicketClick = (num) => {
+            // ADMIN
+            if (STATE.isAdmin) {
+                STATE.activeAdminTicket = num;
+                UI.adminTicketDisplay.textContent = `#${num.toString().padStart(3,'0')}`;
                 
-                UI.adminViewSell.classList.add('hidden');
-                UI.adminViewInfo.classList.remove('hidden');
-            } else {
-
+                if (STATE.soldData[num]) { 
+                    // MUESTRA EL NOMBRE SECRETO AL ADMINISTRADOR
+                    const clientName = STATE.clientNames[num.toString().padStart(3,'0')] || 'Cliente no registrado';
+                    UI.adminInfoName.textContent = clientName;
+                    
+                    UI.adminViewSell.classList.add('hidden');
+                    UI.adminViewInfo.classList.remove('hidden');
+                } else {
                     UI.adminInputBuyer.value = '';
                     UI.adminViewInfo.classList.add('hidden');
                     UI.adminViewSell.classList.remove('hidden');
@@ -568,7 +571,7 @@
             // USUARIO
             if (STATE.soldData[num]) { playSound('error'); return; }
             const idx = STATE.selected.indexOf(num);
-            const btn = document.getElementById(num.toString().padStart(3, '0')); // ID ARREGLADO
+            const btn = document.getElementById(num.toString().padStart(3, '0'));
             btn.classList.remove('btn-highlight');
 
             if (idx > -1) {
@@ -589,7 +592,7 @@
             
             // UI Update Inmediato
             UI.btnAdminSave.innerHTML = "GUARDANDO...";
-            const btnGrid = document.getElementById(num.toString().padStart(3, '0')); // ID ARREGLADO
+            const btnGrid = document.getElementById(num.toString().padStart(3, '0'));
             if(btnGrid) btnGrid.className = "btn-number btn-sold";
             STATE.soldData[num] = { name: buyer }; // Update memory immediately
 
@@ -610,7 +613,7 @@
             await robustDelete(num);
             
             delete STATE.soldData[num];
-            const btn = document.getElementById(num.toString().padStart(3, '0')); // ID ARREGLADO
+            const btn = document.getElementById(num.toString().padStart(3, '0'));
             if(btn) btn.className = "btn-number";
             
             UI.adminModal.classList.add('hidden');
@@ -666,7 +669,7 @@
             const num = parseInt(val);
             if (!num || num < 1 || num > STATE.max) return;
             document.querySelectorAll('.btn-highlight').forEach(el => el.classList.remove('btn-highlight'));
-            const btn = document.getElementById(num.toString().padStart(3, '0')); // ID ARREGLADO
+            const btn = document.getElementById(num.toString().padStart(3, '0'));
             if (btn) {
                 btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 btn.classList.add('btn-highlight');
@@ -676,7 +679,7 @@
 
         window.luckyPick = () => {
             STATE.selected.forEach(n => {
-                const btn = document.getElementById(n.toString().padStart(3, '0')); // ID ARREGLADO
+                const btn = document.getElementById(n.toString().padStart(3, '0'));
                 if(btn && !STATE.soldData[n]) btn.className = "btn-number";
             });
             STATE.selected = [];
@@ -687,7 +690,7 @@
                 const randIndex = Math.floor(Math.random() * available.length);
                 const num = available[randIndex];
                 STATE.selected.push(num);
-                const btn = document.getElementById(num.toString().padStart(3, '0')); // ID ARREGLADO
+                const btn = document.getElementById(num.toString().padStart(3, '0'));
                 if(btn) btn.className = "btn-number btn-selected";
                 available.splice(randIndex, 1);
             }
@@ -778,5 +781,3 @@
     </script>
 </body>
 </html>
-
-                              
