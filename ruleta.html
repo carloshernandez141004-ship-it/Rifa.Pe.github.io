@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Sistema de Sorteo Rifa.Pe</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: #0f172a;
+            color: white;
+            padding: 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        .stage-title { font-size: 1.5rem; font-weight: 800; border-bottom: 2px solid #334155; padding-bottom: 8px; margin-top: 20px; }
+        .btn-draw { 
+            padding: 10px 20px; background-color: #8b5cf6; color: white; border-radius: 8px; font-weight: 700; transition: background-color 0.2s;
+            cursor: pointer; margin-top: 10px; display: block; width: 100%; text-align: center;
+        }
+        .btn-draw:hover { background-color: #7c3aed; }
+        .result-box { 
+            background-color: #1e293b; padding: 10px; border-radius: 6px; margin-top: 10px; 
+            min-height: 40px; display: flex; flex-wrap: wrap; gap: 10px;
+        }
+        .ticket-number { 
+            padding: 4px 8px; border-radius: 4px; font-weight: 700; font-size: 1.1rem;
+        }
+        .eliminated { background-color: #ef4444; color: white; }
+        .finalist { background-color: #f59e0b; color: #451a03; }
+        .winner { background-color: #22c55e; color: black; font-size: 2rem; padding: 10px 15px; }
+        .initial-state { background-color: #0f172a; color: #f59e0b; text-align: center; padding: 20px; border: 2px dashed #f59e0b; }
+        .error-message { color: #ef4444; font-weight: 700; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1 class="text-3xl font-black text-center text-purple-400 mb-6">Sistema de Sorteo por Etapas</h1>
+
+    <div id="initial-load" class="initial-state">
+        Cargando datos de tickets vendidos...
+    </div>
+
+    <div id="controls" class="hidden">
+        
+        <div class="mb-4">
+            <p class="text-sm text-slate-400 mb-2">Total de tickets vendidos (elegibles): <span id="total-sold" class="font-bold text-lg text-green-400">0</span></p>
+            <p class="text-sm text-slate-400">Tickets restantes para el sorteo: <span id="eligible-count" class="font-bold text-lg text-yellow-400">0</span></p>
+        </div>
+
+        <div class="stage-title">Etapa 1: Primeros 5 Eliminados</div>
+        <button id="btn-stage1" class="btn-draw" onclick="drawStage(1, 5, 'eliminated')">Sortear 5 Eliminados</button>
+        <div id="results-stage1" class="result-box"></div>
+
+        <div class="stage-title">Etapa 2: Otros 5 Eliminados</div>
+        <button id="btn-stage2" class="btn-draw" onclick="drawStage(2, 5, 'eliminated')" disabled>Sortear 5 Eliminados Más</button>
+        <div id="results-stage2" class="result-box"></div>
+
+        <div class="stage-title">Etapa 3: Seleccionar 3 Finalistas</div>
+        <button id="btn-stage3" class="btn-draw" onclick="drawStage(3, 3, 'finalist')" disabled>Sortear 3 Finalistas</button>
+        <div id="results-stage3" class="result-box"></div>
+        
+        <div class="stage-title">Etapa 4: ¡GANADOR FINAL!</div>
+        <button id="btn-stage4" class="btn-draw" onclick="drawStage(4, 1, 'winner')" disabled>¡Seleccionar Ganador!</button>
+        <div id="results-stage4" class="result-box flex justify-center items-center"></div>
+    </div>
+</div>
+
+<script>
+    const JSON_URL = '../tickets.json?' + new Date().getTime(); // Subir un nivel para encontrar tickets.json
+    let soldTickets = []; 
+    let eligibleTickets = [];
+    let finalists = [];
+
+    // --- LÓGICA CENTRAL ---
+
+    function loadTickets() {
+        // Usamos fetch con el truco anti-cache para obtener los últimos datos
+        fetch(JSON_URL)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('No se pudo cargar tickets.json');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // 1. FILTRAR SÓLO TICKETS VENDIDOS
+                soldTickets = data.filter(ticket => 
+                    ticket.estado.toUpperCase() === 'VENDIDO'
+                ).map(ticket => ({
+                    id: ticket.id,
+                    cliente: ticket.cliente || 'Desconocido'
+                }));
+
+                if (soldTickets.length < 11) {
+                    document.getElementById('initial-load').innerHTML = 
+                        `<p class="error-message">Error: Se necesitan al menos 11 tickets vendidos para este sorteo. Solo hay ${soldTickets.length}.</p>`;
+                    return;
+                }
+                
+                // 2. INICIALIZAR ELEGIBLES
+                eligibleTickets = [...soldTickets];
+                
+                // 3. ACTUALIZAR UI
+                document.getElementById('initial-load').classList.add('hidden');
+                document.getElementById('controls').classList.remove('hidden');
+                document.getElementById('total-sold').textContent = soldTickets.length;
+                updateEligibleCount();
+                
+                // Habilitar la primera etapa
+                document.getElementById('btn-stage1').disabled = false;
+            })
+            .catch(error => {
+                document.getElementById('initial-load').innerHTML = `<p class="error-message">Error de carga: ${error.message}</p>`;
+            });
+    }
+
+    function drawNumber(sourceList, targetListElement, resultClass, remove = true) {
+        if (sourceList.length === 0) return null;
+        
+        const randomIndex = Math.floor(Math.random() * sourceList.length);
+        const winner = sourceList[randomIndex];
+        
+        // Remover el ganador de la lista de origen (para que no se repita)
+        if (remove) {
+            sourceList.splice(randomIndex, 1);
+        }
+
+        // Mostrar el resultado
+        const resultEl = document.createElement('span');
+        resultEl.className = `ticket-number ${resultClass}`;
+        resultEl.textContent = `${winner.id} (${winner.cliente})`;
+        targetListElement.appendChild(resultEl);
+        
+        return winner;
+    }
+
+    function updateEligibleCount() {
+        document.getElementById('eligible-count').textContent = eligibleTickets.length;
+    }
+
+
+    // --- CONTROL DE ETAPAS ---
+
+    window.drawStage = (stage, count, resultClass) => {
+        let sourceList = eligibleTickets;
+        let targetId = `results-stage${stage}`;
+        let nextButtonId = `btn-stage${stage + 1}`;
+        let button = document.getElementById(`btn-stage${stage}`);
+
+        button.disabled = true;
+        
+        // Manejar Etapas Especiales (Finalistas y Ganador)
+        if (stage === 3) {
+            // Etapa 3 selecciona de eligibleTickets y mueve a finalists
+            if (eligibleTickets.length < count) {
+                alert(`Error: Quedan muy pocos tickets elegibles. Solo hay ${eligibleTickets.length}.`);
+                button.disabled = false;
+                return;
+            }
+            
+            for (let i = 0; i < count; i++) {
+                const finalist = drawNumber(eligibleTickets, document.getElementById(targetId), resultClass);
+                if (finalist) finalists.push(finalist);
+            }
+            
+            updateEligibleCount();
+            document.getElementById(nextButtonId).disabled = false;
+            
+        } else if (stage === 4) {
+            // Etapa 4 selecciona de la lista de finalists (sin remover de esa lista)
+            if (finalists.length !== 3) {
+                alert("Error: La lista de finalistas debe tener 3 números antes de sortear el ganador.");
+                button.disabled = false;
+                return;
+            }
+            
+            // Sortea solo UN ganador de los 3 finalistas
+            const winner = drawNumber(finalists, document.getElementById(targetId), resultClass, false); // No remover, solo seleccionar
+            document.getElementById(targetId).innerHTML = `<div class="winner">${winner.id} (${winner.cliente})</div>`;
+            
+            // Deshabilitar todos los botones después del ganador
+            document.querySelectorAll('.btn-draw').forEach(btn => btn.disabled = true);
+
+        } else {
+            // Etapas 1 y 2 (Eliminación)
+            if (eligibleTickets.length < count) {
+                alert(`Error: Quedan muy pocos tickets elegibles. Solo hay ${eligibleTickets.length}.`);
+                button.disabled = false;
+                return;
+            }
+            
+            for (let i = 0; i < count; i++) {
+                drawNumber(sourceList, document.getElementById(targetId), resultClass);
+            }
+            
+            updateEligibleCount();
+            document.getElementById(nextButtonId).disabled = false;
+        }
+    }
+
+    // Iniciar carga al cargar la página
+    loadTickets();
+</script>
+
+</body>
+</html>
