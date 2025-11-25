@@ -349,26 +349,32 @@
         
         // ESTA ES LA FUNCIÓN QUE VOY A AGREGAR PARA QUE SIEMPRE FUNCIONE LA ACTUALIZACIÓN
         function startManualJsonSync() {
-            // Usa el truco del timestamp para evitar el caché
-            const JSON_URL = 'tickets.json?' + new Date().getTime(); 
+    const JSON_URL = 'tickets.json?' + new Date().getTime(); 
 
-            fetch(JSON_URL)
-                .then(response => response.json())
-                .then(data => {
-                    data.forEach(ticket => {
-                        // Importante: Busca el elemento por su ID de 3 dígitos (ej: "001")
-                        const element = document.getElementById(ticket.id);
-                        
-                        // Si encuentra el elemento y está VENDIDO en el JSON
-                        if (element && ticket.estado.toUpperCase() === 'VENDIDO') {
-                            // Aplica el estilo de vendido
-                            element.className = 'btn-number btn-sold';
-                            element.innerHTML = 'VENDIDO';
-                        }
-                    });
-                })
-                .catch(error => console.error('Error al cargar tickets.json:', error));
-        }
+    fetch(JSON_URL)
+        .then(response => response.json())
+        .then(data => {
+            // 1. Limpia la memoria para empezar de cero
+            STATE.clientNames = {}; 
+            
+            data.forEach(ticket => {
+                const element = document.getElementById(ticket.id);
+                
+                if (element && ticket.estado.toUpperCase() === 'VENDIDO') {
+                    // 2. Si hay un nombre, guárdalo en la memoria secreta
+                    if (ticket.cliente) {
+                        STATE.clientNames[ticket.id] = ticket.cliente;
+                    }
+                    
+                    // 3. Bloquea el número (lo ven todos)
+                    element.className = 'btn-number btn-sold';
+                    element.innerHTML = 'VENDIDO';
+                }
+            });
+        })
+        .catch(error => console.error('Error al cargar tickets.json:', error));
+}
+
         
         const STATE = {
             selected: [],
@@ -380,7 +386,7 @@
             isAdmin: false,
             adminClicks: 0,
             activeAdminTicket: null,
-            isMuted: false
+            isMuted: false, clientNames: {} // <--- ¡Esta es la memoria!
         };
 
         const UI = {
