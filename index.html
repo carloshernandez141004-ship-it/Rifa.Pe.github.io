@@ -339,17 +339,10 @@
     <div id="toast" class="fixed top-24 left-1/2 -translate-x-1/2 bg-slate-800 border border-white/20 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-3 z-[70] transition-all duration-300 opacity-0 translate-y-[-20px] pointer-events-none w-max"><i data-lucide="info" class="w-5 h-5 text-brand-primary"></i><span class="text-sm font-medium" id="toast-message">Info</span></div>
 
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, collection, setDoc, serverTimestamp, deleteDoc, enableNetwork } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // APP ID ORIGINAL
-        const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'rifa-pe-v12-classic';
-        const CONFIG = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        // Se eliminaron las importaciones de Firebase, solo usamos Local Storage y JSON.
         
-        // CÓDIGO DE ACTUALIZACIÓN MANUAL (JSON) - AHORA INTEGRADO Y MEJORADO
+        // CÓDIGO DE ACTUALIZACIÓN MANUAL (JSON)
         function startManualJsonSync() {
-            // Usa el truco del timestamp para evitar el caché
             const JSON_URL = 'tickets.json?' + new Date().getTime(); 
 
             fetch(JSON_URL)
@@ -369,13 +362,19 @@
                             element.innerHTML = 'VENDIDO';
                         }
                     });
+                    // Llama a la sincronización local después de cargar el JSON
+                    syncFromLocal();
                 })
-                .catch(error => console.error('Error al cargar tickets.json:', error));
+                .catch(error => {
+                    console.error('Error al cargar tickets.json:', error);
+                    syncFromLocal(); // Sincroniza localmente si falla el JSON
+                });
         }
         
         const STATE = {
             selected: [],
-            soldData: {},
+            // Usaremos soldData para almacenar los tickets de LocalStorage
+            soldData: JSON.parse(localStorage.getItem('rifa_sold_data') || '{}'),
             price: 5,
             max: 300,
             user: null, 
@@ -384,7 +383,7 @@
             adminClicks: 0,
             activeAdminTicket: null,
             isMuted: false,
-            clientNames: {} // MEMORIA PARA NOMBRES
+            clientNames: {} 
         };
 
         const UI = {
@@ -411,55 +410,28 @@
             sfxPop: document.getElementById('sfx-pop'),
             sfxWin: document.getElementById('sfx-win')
         };
-
-        // --- SISTEMA DE GUARDADO HÍBRIDO (LOCAL STORAGE FALLBACK) ---
-        // Tu código original de guardado, sin cambios.
-        async function robustSave(ticketNum, buyerName) {
-            const data = { 
-                status: 'sold', 
-                buyerName: buyerName, 
-                updatedBy: 'admin', 
-                timestamp: Date.now() 
-            };
+        
+        // --- FUNCIÓN DE GUARDADO LOCAL MEJORADA ---
+        function saveToLocal(key, data) {
+            localStorage.setItem(key, JSON.stringify(data));
+        }
+        
+        // --- INICIALIZACIÓN Y SINCRONIZACIÓN ---
+        
+        // Carga la información del Local Storage para los formularios
+        function syncFromLocal() {
+            // Cargar datos de registro (Base de datos de personas registradas)
+            const registrationDB = JSON.parse(localStorage.getItem('rifa_registrations') || '{}');
+            STATE.registrationDB = registrationDB;
             
-            // 1. Guardado Local (Inmediato)
-            try {
-                const localDB = JSON.parse(localStorage.getItem('rifa_local_db') || '{}');
-                localDB[ticketNum] = data;
-                localStorage.setItem('rifa_local_db', JSON.stringify(localDB));
-            } catch(e) { console.error("Local save error", e); }
-
-            // 2. Intentar Firebase (Si hay config)
-            if (STATE.db) {
-                try {
-                    const ref = doc(STATE.db, `artifacts/${APP_ID}/public/data/tickets`, ticketNum.toString());
-                    await setDoc(ref, { ...data, timestamp: serverTimestamp() });
-                    return true;
-                } catch (e) {
-                    console.warn("Firebase save failed, using local fallback", e);
-                    // No lanzamos error al usuario, porque ya guardamos en local
-                    return false;
-                }
-            }
-            return false;
+            // Colorear tickets de Local Storage si existen
+            Object.keys(STATE.soldData).forEach(numKey => {
+                const btn = document.getElementById(numKey);
+                if(btn) btn.className = "btn-number btn-sold";
+            });
+            updateStats();
         }
 
-        async function robustDelete(ticketNum) {
-            // Borrar local
-            const localDB = JSON.parse(localStorage.getItem('rifa_local_db') || '{}');
-            delete localDB[ticketNum];
-            localStorage.setItem('rifa_local_db', JSON.stringify(localDB));
-
-            // Borrar Firebase
-            if(STATE.db) {
-                try {
-                    const ref = doc(STATE.db, `artifacts/${APP_ID}/public/data/tickets`, ticketNum.toString());
-                    await deleteDoc(ref);
-                } catch(e) {}
-            }
-        }
-
-        // --- INICIALIZACIÓN ---
         function initGrid() {
             let html = '';
             for (let i = 1; i <= STATE.max; i++) {
@@ -467,94 +439,30 @@
                 html += `<button id="${i.toString().padStart(3, '0')}" class="btn-number" onclick="handleTicketClick(${i})">${i.toString().padStart(3, '0')}</button>`;
             }
             UI.grid.innerHTML = html;
-            // Cargar datos locales al inicio
-            syncFromLocal();
-            // Despues de cargar el Grid, llamamos al JSON manual
+            
             startManualJsonSync(); 
-        }
-
-        function syncFromLocal() {
-            const localDB = JSON.parse(localStorage.getItem('rifa_local_db') || '{}');
-            Object.keys(localDB).forEach(key => {
-                const n = parseInt(key);
-                STATE.soldData[n] = localDB[key];
-                // ID ARREGLADO AQUÍ TAMBIÉN
-                const btn = document.getElementById(n.toString().padStart(3, '0'));
-                if(btn) btn.className = "btn-number btn-sold";
-            });
-            updateStats();
         }
 
         async function initApp() {
             lucide.createIcons();
             startCountdown();
             initGrid();
-
-            if (!CONFIG) return; // Si no hay config, funciona 100% local
-            
-            try {
-                const app = initializeApp(CONFIG);
-                STATE.db = getFirestore(app);
-                const auth = getAuth(app);
-    
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        STATE.user = user;
-                        document.getElementById('status-dot').className = "w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]";
-                        startLiveSync();
-                    } else {
-                        signInAnonymously(auth).catch(console.error);
-                    }
-                });
-            } catch(e) { console.error(e); }
         }
 
-        function startLiveSync() {
-            if(!STATE.db) return;
-            onSnapshot(collection(STATE.db, `artifacts/${APP_ID}/public/data/tickets`), (snapshot) => {
-                snapshot.docChanges().forEach(change => {
-                    const data = change.doc.data();
-                    const n = parseInt(change.doc.id);
-                    // ID ARREGLADO AQUÍ TAMBIÉN
-                    const btn = document.getElementById(n.toString().padStart(3, '0'));
-                    
-                    if (change.type === "added" || change.type === "modified") {
-                        if (data.status === 'sold') {
-                            STATE.soldData[n] = { name: data.buyerName || 'Cliente' };
-                            if(btn) btn.className = "btn-number btn-sold";
-                            
-                            // Actualizar local backup también
-                            const localDB = JSON.parse(localStorage.getItem('rifa_local_db') || '{}');
-                            localDB[n] = STATE.soldData[n];
-                            localStorage.setItem('rifa_local_db', JSON.stringify(localDB));
-                        }
-                    } else if (change.type === "removed") {
-                        delete STATE.soldData[n];
-                        if(btn) btn.className = "btn-number";
-                        // Borrar local backup
-                        const localDB = JSON.parse(localStorage.getItem('rifa_local_db') || '{}');
-                        delete localDB[n];
-                        localStorage.setItem('rifa_local_db', JSON.stringify(localDB));
-                    }
-                });
-                STATE.selected = STATE.selected.filter(n => !STATE.soldData[n]);
-                updateBar();
-                updateStats();
-            });
-        }
-        
         // --- INTERACCIÓN ---
         window.handleTicketClick = (num) => {
+            const numPadded = num.toString().padStart(3, '0');
+            
             // ADMIN
             if (STATE.isAdmin) {
                 STATE.activeAdminTicket = num;
-                UI.adminTicketDisplay.textContent = `#${num.toString().padStart(3,'0')}`;
+                UI.adminTicketDisplay.textContent = `#${numPadded}`;
                 
-                if (STATE.soldData[num]) { 
-                    // MUESTRA EL NOMBRE SECRETO AL ADMINISTRADOR
-                    const clientName = STATE.clientNames[num.toString().padStart(3,'0')] || 'Cliente no registrado';
+                // MUESTRA EL NOMBRE DEL CLIENTE (JSON) O EL DATO REGISTRADO (LOCAL)
+                const clientName = STATE.clientNames[numPadded] || (STATE.registrationDB[numPadded] ? STATE.registrationDB[numPadded].name : 'Cliente no registrado');
+                
+                if (STATE.clientNames[numPadded] || STATE.soldData[numPadded]) { 
                     UI.adminInfoName.textContent = clientName;
-                    
                     UI.adminViewSell.classList.add('hidden');
                     UI.adminViewInfo.classList.remove('hidden');
                 } else {
@@ -569,9 +477,9 @@
             }
 
             // USUARIO
-            if (STATE.soldData[num]) { playSound('error'); return; }
+            if (STATE.clientNames[numPadded]) { playSound('error'); return; }
             const idx = STATE.selected.indexOf(num);
-            const btn = document.getElementById(num.toString().padStart(3, '0'));
+            const btn = document.getElementById(numPadded);
             btn.classList.remove('btn-highlight');
 
             if (idx > -1) {
@@ -585,40 +493,48 @@
             updateBar();
         };
 
-        // --- ACCIONES ADMIN (AHORA HÍBRIDAS) ---
-        window.adminConfirmSale = async () => {
+        // --- ACCIONES ADMIN (GENERAR CÓDIGO) ---
+        window.adminConfirmSale = () => {
             const buyer = UI.adminInputBuyer.value.trim() || 'Venta Manual';
-            const num = STATE.activeAdminTicket;
+            const numPadded = STATE.activeAdminTicket.toString().padStart(3,'0');
             
-            // UI Update Inmediato
-            UI.btnAdminSave.innerHTML = "GUARDANDO...";
-            const btnGrid = document.getElementById(num.toString().padStart(3, '0'));
-            if(btnGrid) btnGrid.className = "btn-number btn-sold";
-            STATE.soldData[num] = { name: buyer }; // Update memory immediately
+            // 1. CÓDIGO JSON GENERADO PARA COPIAR
+            const jsonLine = `{ "id": "${numPadded}", "estado": "VENDIDO", "cliente": "${buyer}" }`;
+            
+            // 2. COPIAR AL PORTAPAPELES
+            navigator.clipboard.writeText(jsonLine);
 
-            // Guardado Robusto (Local + DB)
-            await robustSave(num, buyer);
-            
             UI.adminModal.classList.add('hidden');
-            showToast(`✅ Venta guardada: #${num}`);
+            
+            // 3. MENSAJE FINAL
+            showToast(`✅ CÓDIGO COPIADO!`);
+            
+            alert(`¡VENTA REGISTRADA! PASO FINAL:\n\n1. Entra a tu archivo tickets.json en GitHub.\n2. Busca el número ${numPadded}.\n3. Pega esta línea en su lugar:\n\n${jsonLine}\n\n¡GUARDA EL ARCHIVO (Commit changes) Y LISTO!`);
+            
             playSound('win');
             confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 }, disableForReducedMotion: true });
-            updateStats();
+            
+            // Actualización visual inmediata
+            const btnGrid = document.getElementById(numPadded);
+            if(btnGrid) btnGrid.className = "btn-number btn-sold";
+            
+            // Forzar recarga corta para ver la nueva data
+            setTimeout(() => location.reload(), 2000);
         };
 
-        window.adminReleaseTicket = async () => {
-            const num = STATE.activeAdminTicket;
-            if(!num) return;
+        window.adminReleaseTicket = () => {
+            const numPadded = STATE.activeAdminTicket.toString().padStart(3,'0');
             
-            await robustDelete(num);
+            const jsonLine = `{ "id": "${numPadded}", "estado": "LIBRE" }`;
             
-            delete STATE.soldData[num];
-            const btn = document.getElementById(num.toString().padStart(3, '0'));
-            if(btn) btn.className = "btn-number";
+            navigator.clipboard.writeText(jsonLine);
             
             UI.adminModal.classList.add('hidden');
-            showToast(`Ticket #${num} Liberado`);
-            updateStats();
+            
+            alert(`¡TICKET LIBERADO! PASO FINAL:\n\n1. Entra a tu archivo tickets.json en GitHub.\n2. Busca el número ${numPadded}.\n3. Pega esta línea en su lugar:\n\n${jsonLine}\n\n¡GUARDA EL ARCHIVO (Commit changes) Y LISTO!`);
+            
+            showToast(`Ticket #${numPadded} Liberado!`);
+            setTimeout(() => location.reload(), 2000);
         };
 
         // --- EXTRAS ---
@@ -656,7 +572,7 @@
         }
 
         function updateStats() {
-            const count = Object.keys(STATE.soldData).length;
+            const count = Object.keys(STATE.clientNames).length;
             const percent = Math.round((count / STATE.max) * 100);
             document.getElementById('progress-fill').style.width = `${percent}%`;
             document.getElementById('sold-percentage').textContent = `${percent}% Vendido`;
@@ -680,11 +596,11 @@
         window.luckyPick = () => {
             STATE.selected.forEach(n => {
                 const btn = document.getElementById(n.toString().padStart(3, '0'));
-                if(btn && !STATE.soldData[n]) btn.className = "btn-number";
+                if(btn && !STATE.clientNames[n.toString().padStart(3, '0')]) btn.className = "btn-number";
             });
             STATE.selected = [];
             const available = [];
-            for(let i=1; i<=STATE.max; i++) { if(!STATE.soldData[i]) available.push(i); }
+            for(let i=1; i<=STATE.max; i++) { if(!STATE.clientNames[i.toString().padStart(3, '0')]) available.push(i); }
             if(available.length < 3) { showToast("Pocos tickets disponibles"); return; }
             for(let k=0; k<3; k++) {
                 const randIndex = Math.floor(Math.random() * available.length);
@@ -728,7 +644,21 @@
         window.closeAdminModal = () => UI.adminModal.classList.add('hidden');
 
         window.goToPayment = () => {
-            if (!document.getElementById('input-name').value.trim()) { showToast("Completa tu nombre"); return; }
+            // Guardar datos de registro en la memoria local antes de ir al pago
+            const name = document.getElementById('input-name').value;
+            const dni = document.getElementById('input-dni').value;
+            const phone = document.getElementById('input-phone').value;
+            const address = document.getElementById('input-address').value;
+            
+            if (!name.trim()) { showToast("Completa tu nombre"); return; }
+            
+            STATE.selected.forEach(num => {
+                const numPadded = num.toString().padStart(3, '0');
+                STATE.registrationDB[numPadded] = { name, dni, phone, address, timestamp: Date.now() };
+            });
+
+            saveToLocal('rifa_registrations', STATE.registrationDB);
+            
             document.getElementById('summary-total').textContent = `S/ ${(STATE.selected.length * STATE.price).toFixed(2)}`;
             document.getElementById('modal-header-step1').classList.add('hidden');
             document.getElementById('step-1').classList.add('hidden');
@@ -749,6 +679,7 @@
             const total = (STATE.selected.length * STATE.price).toFixed(2);
             const tickets = STATE.selected.map(n => n.toString().padStart(3,'0')).join(', ');
             
+            // Solo se envía el mensaje, el registro ya está guardado localmente.
             const msg = `Hola! 👋 Confirmo compra en Rifa.Pe\n👤 *${name}* (DNI: ${dni})\n🎟️ *TICKETS:* ${tickets}\n💰 *TOTAL:* S/ ${total}\nAdjunto captura 👇`;
             
             window.open(`https://wa.me/51955028410?text=${encodeURIComponent(msg)}`, '_blank');
